@@ -43,7 +43,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Notifica-IPA
-          path: Notifica/build/Notifica.ipa
+          path: Notifica/build/*.ipa
           if-no-files-found: error
       - name: Disponibilizar resultado dos testes
         if: always()
