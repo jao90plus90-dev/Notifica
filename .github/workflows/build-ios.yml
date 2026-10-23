@@ -1,0 +1,54 @@
+name: Compilar IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Notifica
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extrair projeto
+        working-directory: .
+        run: unzip -q Notifica-iOS-Projeto.zip
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Gerar projeto
+        run: xcodegen generate
+      - name: Escolher simulador
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          data = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))
+          devices = [d for runtime, group in data['devices'].items() if 'iOS' in runtime for d in group if d['name'].startswith('iPhone')]
+          if not devices:
+              raise SystemExit('Nenhum simulador iPhone disponível')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('SIMULATOR_ID=' + devices[0]['udid'] + '\n')
+          PY
+      - name: Testar regras de notificações
+        run: |
+          xcodebuild test -project Notifica.xcodeproj -scheme Notifica \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath build/Tests.xcresult CODE_SIGNING_ALLOWED=NO
+      - name: Compilar para iPhone e gerar IPA
+        run: bash scripts/build-ipa.sh
+      - name: Disponibilizar IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Notifica-IPA
+          path: Notifica/build/Notifica.ipa
+          if-no-files-found: error
+      - name: Disponibilizar resultado dos testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resultado-dos-testes
+          path: Notifica/build/Tests.xcresult
+          if-no-files-found: ignore
