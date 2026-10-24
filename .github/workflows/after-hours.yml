@@ -1,0 +1,69 @@
+name: After Hours - compilar jogo iOS
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['AfterHours-iOS-Projeto.zip', '.github/workflows/after-hours.yml']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: AfterHours
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extrair projeto do jogo
+        working-directory: .
+        run: unzip -q AfterHours-iOS-Projeto.zip
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Gerar projeto
+        run: xcodegen generate
+      - name: Escolher simulador
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          data = json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))
+          devices = [d for runtime, group in data['devices'].items() if 'iOS' in runtime for d in group if d['name'].startswith('iPhone')]
+          if not devices: raise SystemExit('Nenhum iPhone disponível')
+          with open(os.environ['GITHUB_ENV'],'a') as out: out.write('SIMULATOR_ID='+devices[0]['udid']+'\n')
+          PY
+      - name: Testar regras, objetivos e navegação
+        run: |
+          xcodebuild test -project AfterHours.xcodeproj -scheme AfterHours \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/sim -resultBundlePath build/Tests.xcresult CODE_SIGNING_ALLOWED=NO
+      - name: Capturar jogo real no simulador
+        run: |
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          xcrun simctl install "$SIMULATOR_ID" build/sim/Build/Products/Debug-iphonesimulator/AfterHours.app
+          mkdir -p build/screenshots
+          for mode in menu closing night monster; do
+            xcrun simctl terminate "$SIMULATOR_ID" br.pessoal.afterhours.game || true
+            if [ "$mode" = menu ]; then
+              xcrun simctl launch "$SIMULATOR_ID" br.pessoal.afterhours.game
+            else
+              xcrun simctl launch "$SIMULATOR_ID" br.pessoal.afterhours.game "--preview-$mode"
+            fi
+            sleep 5
+            xcrun simctl io "$SIMULATOR_ID" screenshot "build/screenshots/$mode.png"
+          done
+      - name: Compilar e gerar IPA
+        run: bash scripts/build-ipa.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AfterHours-IPA
+          path: AfterHours/build/AfterHours.ipa
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AfterHours-Testes-e-Telas
+          path: |
+            AfterHours/build/Tests.xcresult
+            AfterHours/build/screenshots
+          if-no-files-found: ignore
