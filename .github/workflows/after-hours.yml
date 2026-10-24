@@ -36,22 +36,6 @@ jobs:
           xcodebuild test -project AfterHours.xcodeproj -scheme AfterHours \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath build/sim -resultBundlePath build/Tests.xcresult CODE_SIGNING_ALLOWED=NO
-      - name: Capturar jogo real no simulador
-        run: |
-          xcrun simctl boot "$SIMULATOR_ID" || true
-          xcrun simctl bootstatus "$SIMULATOR_ID" -b
-          xcrun simctl install "$SIMULATOR_ID" build/sim/Build/Products/Debug-iphonesimulator/AfterHours.app
-          mkdir -p build/screenshots
-          for mode in menu closing night monster; do
-            xcrun simctl terminate "$SIMULATOR_ID" br.pessoal.afterhours.game || true
-            if [ "$mode" = menu ]; then
-              xcrun simctl launch "$SIMULATOR_ID" br.pessoal.afterhours.game
-            else
-              xcrun simctl launch "$SIMULATOR_ID" br.pessoal.afterhours.game "--preview-$mode"
-            fi
-            sleep 5
-            xcrun simctl io "$SIMULATOR_ID" screenshot "build/screenshots/$mode.png"
-          done
       - name: Compilar e gerar IPA
         run: bash scripts/build-ipa.sh
       - uses: actions/upload-artifact@v4
@@ -59,6 +43,12 @@ jobs:
           name: AfterHours-IPA
           path: AfterHours/build/AfterHours.ipa
           if-no-files-found: error
+      - name: Exportar telas dos testes
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p build/screenshots
+          xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:
